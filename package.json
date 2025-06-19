@@ -1,0 +1,49 @@
+{
+  "name": "rsbuild-plugin-prerender-playwright",
+  "description": "A tiny rsbuild plugin to prerender pages with playwright",
+  "author": "Steven semyung oh <semyung.dev@gmail.com> (https://github.com/nemyung)",
+  "repository": "https://github.com/nemyung/rsbuild-plugin-prerender-playwright",
+  "license": "MIT",
+  "version": "0.0.0",
+  "type": "module",
+  "keywords": [
+    "rsbuild",
+    "prerender",
+    "ssg",
+    "spa",
+    "playwright"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rslib build",
+    "dev": "rslib build --watch"
+  },
+  "dependencies": {
+    "get-port": "^7.1.0",
+    "uWebSockets.js": "uNetworking/uWebSockets.js#v20.52.0"
+  },
+  "devDependencies": {
+    "@rslib/core": "^0.10.1",
+    "@types/node": "^22.15.32",
+    "typescript": "^5.8.3"
+  },
+  "peerDependencies": {
+    "@rsbuild/core": "^1.3.22",
+    "playwright": "^1.53.1"
+  },
+  "engines": {
+    "node": "^22.11.0",
+    "pnpm": "^10.12.1"
+  }
+}
