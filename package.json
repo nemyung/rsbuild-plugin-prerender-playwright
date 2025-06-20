@@ -2,9 +2,12 @@
   "name": "rsbuild-plugin-prerender-playwright",
   "description": "A tiny rsbuild plugin to prerender pages with playwright",
   "author": "Steven semyung oh <semyung.dev@gmail.com> (https://github.com/nemyung)",
-  "repository": "https://github.com/nemyung/rsbuild-plugin-prerender-playwright",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nemyung/rsbuild-plugin-prerender-playwright.git"
+  },
   "license": "MIT",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "keywords": [
     "rsbuild",
