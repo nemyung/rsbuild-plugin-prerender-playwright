@@ -3,8 +3,13 @@ import getPort from "get-port";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { chromium } from "playwright";
-import { App } from "uWebSockets.js";
+import {
+  type Page,
+  type Browser,
+  type BrowserContext,
+  chromium,
+} from "playwright";
+import { type TemplatedApp, App } from "uWebSockets.js";
 
 export interface PrerenderOptions {
   /**
@@ -12,6 +17,12 @@ export interface PrerenderOptions {
    * @example ['/about', '/contact', '/products']
    */
   routes: string[];
+
+  /**
+   * Skip third party requests
+   * @default false
+   */
+  skipThirdPartyRequests?: boolean;
 
   /**
    * Playwright configuration options
@@ -54,6 +65,7 @@ export interface PrerenderOptions {
 
 const defaultOptions = {
   routes: [],
+  skipThirdPartyRequests: false,
   playwright: {
     waitUntil: "load",
     timeout: 30000,
@@ -62,7 +74,9 @@ const defaultOptions = {
   },
 } as const satisfies PrerenderOptions;
 
-export function prerenderPlayWright(options: PrerenderOptions): RsbuildPlugin {
+export function pluginPrerenderPlaywright(
+  options: PrerenderOptions
+): RsbuildPlugin {
   const config = {
     ...defaultOptions,
     ...options,
@@ -81,57 +95,74 @@ export function prerenderPlayWright(options: PrerenderOptions): RsbuildPlugin {
 
     setup(api) {
       api.onAfterBuild(async ({ stats }) => {
-        if (!stats) return;
+        if (!stats || stats.hasErrors()) {
+          return;
+        }
 
         const rsbuildConfig = api.getNormalizedConfig();
         const distPath = rsbuildConfig.output.distPath.root;
-        const port = await getPort();
-        const app = App({})
-          .get("/*", (res, req) => {
-            const url = req.getUrl();
-            const assetPath = url === "/" ? "index.html" : url.slice(1);
-            const targetPath = join(distPath, assetPath);
-            const fallbackPath = join(distPath, "index.html");
 
-            try {
-              if (existsSync(targetPath)) {
-                const content = readFileSync(targetPath);
-                res.end(content);
-              } else {
-                const fallbackContent = readFileSync(fallbackPath);
-                res.end(fallbackContent);
-              }
-            } catch (error) {
-              res.writeStatus("404 Not Found").end("Not Found");
-            }
-          })
-          .listen(port, () => {});
-
-        const serverUrl = `http://localhost:${port}`;
-
-        const browser = await chromium.launch({
-          headless: config.playwright.headless,
-        });
+        let app: TemplatedApp | null = null;
+        let browser: Browser | null = null;
+        let context: BrowserContext | null = null;
+        let currentPage: Page | null = null;
 
         try {
+          const fallbackPath = join(distPath, "index.html");
+          const fallbackContent = readFileSync(fallbackPath);
+          const port = await getPort();
+          const serverUrl = `http://localhost:${port}`;
+          app = App({})
+            .get("/*", (res, req) => {
+              const url = req.getUrl();
+              const assetPath = url === "/" ? "index.html" : url.slice(1);
+              const targetPath = join(distPath, assetPath);
+              try {
+                if (existsSync(targetPath)) {
+                  const content = readFileSync(targetPath);
+                  res.end(content);
+                } else {
+                  res.end(fallbackContent);
+                }
+              } catch (error) {
+                res.writeStatus("404 Not Found").end("Not Found");
+              }
+            })
+            .listen(port, () => {});
+
+          browser = await chromium.launch({
+            headless: config.playwright.headless,
+          });
+          context = await browser.newContext();
+
+          if (config.skipThirdPartyRequests) {
+            await context.route("**/*", (route) => {
+              const url = route.request().url();
+              if (url.startsWith(serverUrl)) {
+                return route.continue();
+              }
+              return route.abort();
+            });
+          }
           for (const route of config.routes) {
-            const page = await browser.newPage();
+            currentPage = await context.newPage();
+            await currentPage.setViewportSize(config.playwright.viewport);
 
-            await page.setViewportSize(config.playwright.viewport);
-
-            await page.goto(`${serverUrl}${route}`, {
+            await currentPage.goto(`${serverUrl}${route}`, {
               waitUntil: config.playwright.waitUntil,
               timeout: config.playwright.timeout,
             });
 
             if (config.playwright.waitForSelector) {
-              await page.waitForSelector(config.playwright.waitForSelector, {
-                timeout: config.playwright.timeout,
-              });
+              await currentPage.waitForSelector(
+                config.playwright.waitForSelector,
+                {
+                  timeout: config.playwright.timeout,
+                }
+              );
             }
 
-            const html = await page.content();
-
+            const html = await currentPage.content();
             const outputPath =
               route === "/" ? "index.html" : `${route.slice(1)}.html`;
             const fullOutputPath = join(distPath, outputPath);
@@ -140,12 +171,17 @@ export function prerenderPlayWright(options: PrerenderOptions): RsbuildPlugin {
               recursive: true,
             });
             await writeFile(fullOutputPath, html, "utf-8");
-
-            await page.close();
+            await currentPage.close();
+            currentPage = null;
           }
+        } catch (error) {
+          console.error(`An Exception occured while prerendering: `, error);
+          throw error;
         } finally {
-          await browser.close();
-          app.close();
+          await currentPage?.close();
+          await context?.close();
+          await browser?.close();
+          app?.close();
         }
       });
     },
